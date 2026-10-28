@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Aerodynamic Glider Simulation</title>
+    <!-- Tailwind CSS CDN for HUD & Controls styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #87CEEB;
+        }
+
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Glassmorphism HUD panels */
+        .hud-panel {
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
+        }
+
+        /* Tactile control buttons */
+        .ctrl-btn {
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.88) 0%, rgba(15, 23, 42, 0.94) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+            transition: all 0.12s ease;
+        }
+
+        .ctrl-btn:hover {
+            border-color: rgba(56, 189, 248, 0.6);
+            transform: translateY(-1px);
+        }
+
+        .ctrl-btn:active, .ctrl-btn.active-key {
+            background: linear-gradient(180deg, rgba(2, 132, 199, 0.9) 0%, rgba(3, 105, 161, 0.95) 100%);
+            border-color: rgba(125, 211, 252, 0.85);
+            transform: translateY(1px);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+        }
+    </style>
+</head>
+<body class="text-white antialiased">
+
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Top Flight Telemetry HUD -->
+    <div class="fixed top-3 left-3 right-3 md:top-5 md:left-5 md:right-5 pointer-events-none flex flex-col lg:flex-row justify-between items-start gap-3 z-10">
+        
+        <!-- Primary Flight Instruments -->
+        <div class="hud-panel rounded-2xl p-3.5 md:p-4 pointer-events-auto w-full lg:w-auto">
+            <div class="flex items-center justify-between gap-6 mb-2.5 pb-2 border-b border-slate-700/80">
+                <div class="flex items-center gap-2.5">
+                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" id="status-dot"></span>
+                    <h1 class="text-xs md:text-sm font-bold tracking-wider uppercase text-sky-300">Glider Flight Telemetry</h1>
+                </div>
+                <span id="flight-status-badge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    AIRBORNE
+                </span>
+            </div>
+
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2.5 md:gap-4 text-center">
+                <!-- Altitude -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Altitude</div>
+                    <div class="text-base md:text-lg font-bold mono text-white mt-0.5">
+                        <span id="hud-alt">50.0</span><span class="text-xs text-slate-400 ml-0.5">m</span>
+                    </div>
+                </div>
+
+                <!-- Airspeed -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Airspeed</div>
+                    <div class="text-base md:text-lg font-bold mono text-sky-300 mt-0.5">
+                        <span id="hud-speed">19.0</span><span class="text-xs text-slate-400 ml-0.5">m/s</span>
+                    </div>
+                </div>
+
+                <!-- Sink Rate -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sink Rate</div>
+                    <div class="text-base md:text-lg font-bold mono text-amber-300 mt-0.5">
+                        <span id="hud-sink">-2.1</span><span class="text-xs text-slate-400 ml-0.5">m/s</span>
+                    </div>
+                </div>
+
+                <!-- Glide Angle -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Glide Path</div>
+                    <div class="text-base md:text-lg font-bold mono text-emerald-300 mt-0.5">
+                        <span id="hud-glide">-30.0</span><span class="text-xs text-slate-400 ml-0.5">°</span>
+                    </div>
+                </div>
+
+                <!-- Bank Angle -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Bank Angle</div>
+                    <div class="text-base md:text-lg font-bold mono text-indigo-300 mt-0.5">
+                        <span id="hud-bank">0.0</span><span class="text-xs text-slate-400 ml-0.5">°</span>
+                    </div>
+                </div>
+
+                <!-- Downrange Distance -->
+                <div class="bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Distance</div>
+                    <div class="text-base md:text-lg font-bold mono text-purple-300 mt-0.5">
+                        <span id="hud-dist">0</span><span class="text-xs text-slate-400 ml-0.5">m</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Artificial Bank Horizon & Aerodynamic Forces Mini-Panel -->
+        <div class="hud-panel rounded-2xl p-3.5 pointer-events-auto hidden sm:flex items-center gap-4">
+            <!-- Visual Roll/Bank Indicator SVG -->
+            <div class="relative w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-600 flex items-center justify-center overflow-hidden shadow-inner">
+                <!-- Sky/Ground split -->
+                <div id="horizon-disc" class="w-24 h-24 absolute transition-transform duration-75" style="background: linear-gradient(180deg, #0284c7 50%, #15803d 50%);"></div>
+                <!-- Fixed aircraft wing reference -->
+                <svg class="w-12 h-12 relative z-10 text-amber-300 drop-shadow" viewBox="0 0 64 64" fill="none">
+                    <path d="M8 32H24L28 36H36L40 32H56" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="32" cy="32" r="2.5" fill="currentColor"/>
+                    <path d="M32 10V16" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <!-- Live Aerodynamics Readout -->
+            <div class="text-xs space-y-1 pr-1">
+                <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">AoA (α):</span>
+                    <span id="hud-aoa" class="mono font-semibold text-white">5.5°</span>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">Vert Lift (L·cosφ):</span>
+                    <span id="hud-vert-lift" class="mono font-semibold text-emerald-300">100%</span>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">L/D Ratio:</span>
+                    <span id="hud-ld" class="mono font-semibold text-sky-300">9.8</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Center Notification Overlay (Shown on Touchdown or Obstacle Collision) -->
+    <div id="status-modal" class="fixed inset-0 pointer-events-none flex items-center justify-center z-20 hidden px-4">
+        <div class="hud-panel rounded-3xl p-6 md:p-8 max-w-md w-full text-center pointer-events-auto border border-white/20 transform transition-all">
+            <div id="modal-icon" class="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+                ✓
+            </div>
+            <h2 id="modal-title" class="text-xl md:text-2xl font-bold text-white mb-2">Glider Touchdown</h2>
+            <p id="modal-desc" class="text-sm text-slate-300 mb-5 leading-relaxed">
+                You glided 365.0 m downrange through the obstacle field.
+            </p>
+            <button id="modal-reset-btn" class="ctrl-btn px-6 py-3 rounded-xl font-semibold text-sm text-white w-full flex items-center justify-center gap-2">
+                <span>Relaunch at 50m Altitude (Press R)</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom Controls Bar (Supports both Keyboard & Touch/Mouse Click) -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-full max-w-lg px-4 pointer-events-none">
+        <div class="flex items-center justify-center gap-3 w-full pointer-events-auto">
+            <!-- Bank Left (A) -->
+            <button id="btn-left" class="ctrl-btn flex-1 py-3 px-4 rounded-2xl flex items-center justify-center gap-2.5 text-sm font-semibold active:scale-95">
+                <kbd class="px-2 py-0.5 text-xs rounded bg-slate-800 border border-slate-600 text-sky-300 mono">A</kbd>
+                <span>Bank Left</span>
+            </button>
+
+            <!-- Reset (R) -->
+            <button id="btn-reset" class="ctrl-btn py-3 px-5 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold text-amber-200 active:scale-95">
+                <kbd class="px-2 py-0.5 text-xs rounded bg-slate-800 border border-slate-600 text-amber-300 mono">R</kbd>
+                <span>Reset</span>
+            </button>
+
+            <!-- Bank Right (D) -->
+            <button id="btn-right" class="ctrl-btn flex-1 py-3 px-4 rounded-2xl flex items-center justify-center gap-2.5 text-sm font-semibold active:scale-95">
+                <span>Bank Right</span>
+                <kbd class="px-2 py-0.5 text-xs rounded bg-slate-800 border border-slate-600 text-sky-300 mono">D</kbd>
+            </button>
+        </div>
+        <div class="text-[11px] text-slate-900/80 font-medium bg-white/75 backdrop-blur px-3 py-1 rounded-full shadow-sm">
+            Hold <b>A</b> / <b>D</b> to bank • Banking tilts lift vector (<span class="mono">L·cosφ</span>), increasing sink rate • Drag mouse to adjust camera
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * 3D AERODYNAMIC GLIDER SIMULATION
+         * ============================================================================
+         * Implements a pure unpowered sailplane starting at 50 m altitude with an
+         * initial 30-degree descent angle, aerodynamic lift/drag physics, banking-induced
+         * sink rate & turn dynamics, chase camera, and a 10-obstacle course (100-400m).
+         */
+
+        // --- 1. PHYSICAL & AERODYNAMIC CONSTANTS ---
+        const PHYSICS = {
+            mass: 115.0,               // Glider + pilot mass (kg)
+            wingArea: 14.5,            // Reference wing planform area S (m^2)
+            aspectRatio: 15.8,         // Wing aspect ratio AR = b^2 / S
+            airDensity: 1.225,         // Sea-level air density rho (kg/m^3)
+            gravity: 9.81,             // Gravitational acceleration g (m/s^2)
+
+            // Lift & Drag Coefficients
+            CL0: 0.24,                 // Zero-AoA lift coefficient
+            CL_alpha: 5.4,             // Lift curve slope (per radian)
+            CD0: 0.042,                // Parasite drag coefficient (fuselage + wings)
+            oswaldEfficiency: 0.80,    // Oswald span efficiency factor e
+            inducedDragFactor: 0.048,  // k factor for induced drag (CD = CD0 + k * CL^2)
+
+            // Longitudinal Trim & Stability
+            trimAoA: THREE.MathUtils.degToRad(5.6), // Natural trimmed Angle of Attack (~5.6 deg)
+            pitchStiffness: 6.5,       // Restoring pitch rate toward trim AoA
+            pitchDamping: 4.2,         // Damping of flight-path oscillations
+
+            // Roll / Bank Dynamics
+            maxBankAngle: THREE.MathUtils.degToRad(25), // Limit maximum bank angle to +/- 60 deg
+            rollInputRate: THREE.MathUtils.degToRad(75),// Roll rate when holding A or D (rad/s)
+            rollRestoreRate: 2.2,      // Natural dihedral restoring moment factor when keys released
+
+            // Initial Launch Conditions
+            startAltitude: 50.0,       // Initial altitude: 50 m
+            startDescentDeg: 30.0,     // Initial descent angle: 30 degrees downward
+            startAirspeed: 19.5        // Initial airspeed (m/s)
+        };
+
+        // --- 2. SIMULATION STATE ---
+        const state = {
+            position: new THREE.Vector3(0, PHYSICS.startAltitude, 0),
+            airspeed: PHYSICS.startAirspeed,
+            gamma: -THREE.MathUtils.degToRad(PHYSICS.startDescentDeg), // Flight path angle (<0 descending)
+            pitch: -THREE.MathUtils.degToRad(PHYSICS.startDescentDeg - 5.6), // Aircraft pitch attitude
+            heading: 0.0,              // Yaw / heading angle (0 = flying along +Z axis)
+            bank: 0.0,                 // Roll / bank angle phi (positive = right bank, negative = left bank)
+            aoa: PHYSICS.trimAoA,      // Current Angle of Attack (rad)
+            sinkRate: 0.0,             // Vertical velocity dy/dt (m/s)
+            liftForce: 0.0,            // Total aerodynamic lift (N)
+            dragForce: 0.0,            // Total aerodynamic drag (N)
+            ldRatio: 0.0,              // Instantaneous L/D ratio
+            isAirborne: true,
+            endReason: ''
+        };
+
+        // Control inputs state
+        const keys = {
+            left: false,
+            right: false
+        };
+
+        // Optional subtle user camera offset via mouse drag
+        const camOrbit = {
+            isDragging: false,
+            prevX: 0,
+            prevY: 0,
+            yawOffset: 0,
+            pitchOffset: 0
+        };
+
+        // Store obstacle bounding spheres/cylinders for proximity/collision check
+        const obstacles = [];
+
+        // --- 3. THREE.JS SCENE, CAMERA & RENDERER SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x7dd3fc); // Crisp daylight sky blue
+        scene.fog = new THREE.FogExp2(0xbae6fd, 0.0011);
+
+        const camera = new THREE.PerspectiveCamera(
+            58,
+            window.innerWidth / window.innerHeight,
+            0.5,
+            2500
+        );
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // --- 4. LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+        scene.add(ambientLight);
+
+        const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x15803d, 0.35);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.95);
+        dirLight.position.set(180, 320, 150);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 10;
+        dirLight.shadow.camera.far = 900;
+        const d = 320;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        scene.add(dirLight);
+
+        // --- 5. GROUND PLANE & REFERENCE MARKERS ---
+        function createEnvironment() {
+            // Large green ground plane
+            const groundGeo = new THREE.PlaneGeometry(3000, 3000);
+            const groundMat = new THREE.MeshLambertMaterial({ color: 0x2e7d32 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Lighter grassy corridor along the 0 - 500m flight path for depth perception
+            const stripGeo = new THREE.PlaneGeometry(90, 560);
+            const stripMat = new THREE.MeshLambertMaterial({ color: 0x388e3c });
+            const strip = new THREE.Mesh(stripGeo, stripMat);
+            strip.rotation.x = -Math.PI / 2;
+            strip.position.set(0, 0.02, 240);
+            strip.receiveShadow = true;
+            scene.add(strip);
+
+            // Distance lines every 100m (100m, 200m, 300m, 400m) so altitude & speed are easy to read
+            const markerMat = new THREE.MeshBasicMaterial({ color: 0x81c784, transparent: true, opacity: 0.55 });
+            for (let z = 100; z <= 400; z += 100) {
+                const lineGeo = new THREE.PlaneGeometry(80, 0.8);
+                const line = new THREE.Mesh(lineGeo, markerMat);
+                line.rotation.x = -Math.PI / 2;
+                line.position.set(0, 0.04, z);
+                scene.add(line);
+            }
+        }
+
+        // --- 6. GLIDER 3D MODEL (CONSTRUCTED FROM SIMPLE SHAPES) ---
+        const gliderGroup = new THREE.Group();
+        const gliderModel = new THREE.Group(); // Holds geometry aligned with +Z forward
+        gliderGroup.add(gliderModel);
+        scene.add(gliderGroup);
+
+        function buildGliderMesh() {
+            // High-visibility white and bright sky/coral trim materials
+            const whiteMat = new THREE.MeshPhongMaterial({ color: 0xf8fafc, shininess: 70 });
+            const accentMat = new THREE.MeshPhongMaterial({ color: 0xf97316, shininess: 60 }); // Safety orange wingtips/tail trim
+            const canopyMat = new THREE.MeshPhongMaterial({ color: 0x0284c7, shininess: 100, transparent: true, opacity: 0.82 });
+
+            // 1. Fuselage (sleek elongated cylinder + nose & tail cones)
+            const fuselageGeo = new THREE.CylinderGeometry(0.32, 0.20, 6.8, 16);
+            fuselageGeo.rotateX(Math.PI / 2); // Align along Z axis
+            const fuselage = new THREE.Mesh(fuselageGeo, whiteMat);
+            fuselage.castShadow = true;
+            gliderModel.add(fuselage);
+
+            // Nose cone (+Z front)
+            const noseGeo = new THREE.ConeGeometry(0.32, 1.3, 16);
+            noseGeo.rotateX(Math.PI / 2);
+            const nose = new THREE.Mesh(noseGeo, accentMat);
+            nose.position.set(0, 0, 4.05);
+            nose.castShadow = true;
+            gliderModel.add(nose);
+
+            // Cockpit canopy
+            const canopyGeo = new THREE.BoxGeometry(0.52, 0.36, 1.9);
+            const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+            canopy.position.set(0, 0.24, 1.4);
+            gliderModel.add(canopy);
+
+            // 2. Main Wings (high aspect ratio thin box)
+            const mainWingGeo = new THREE.BoxGeometry(13.2, 0.09, 1.05);
+            const mainWing = new THREE.Mesh(mainWingGeo, whiteMat);
+            mainWing.position.set(0, 0.18, 0.6);
+            mainWing.castShadow = true;
+            mainWing.receiveShadow = true;
+            gliderModel.add(mainWing);
+
+            // High-visibility Wingtips (thin boxes at outer edges)
+            const tipGeo = new THREE.BoxGeometry(1.4, 0.095, 1.05);
+            const leftTip = new THREE.Mesh(tipGeo, accentMat);
+            leftTip.position.set(7.3, 0.18, 0.6);
+            leftTip.castShadow = true;
+            gliderModel.add(leftTip);
+
+            const rightTip = new THREE.Mesh(tipGeo, accentMat);
+            rightTip.position.set(-7.3, 0.18, 0.6);
+            rightTip.castShadow = true;
+            gliderModel.add(rightTip);
+
+            // 3. Vertical Tail Fin (thin box at rear -Z)
+            const vTailGeo = new THREE.BoxGeometry(0.10, 1.45, 0.95);
+            const vTail = new THREE.Mesh(vTailGeo, whiteMat);
+            vTail.position.set(0, 0.75, -3.0);
+            vTail.castShadow = true;
+            gliderModel.add(vTail);
+
+            // 4. Horizontal Tail Stabilizer (T-tail thin box)
+            const hTailGeo = new THREE.BoxGeometry(3.2, 0.07, 0.68);
+            const hTail = new THREE.Mesh(hTailGeo, accentMat);
+            hTail.position.set(0, 1.45, -3.05);
+            hTail.castShadow = true;
+            gliderModel.add(hTail);
+        }
+
+        // --- 7. OBSTACLES (10 OBSTACLES PLACED 100m - 400m AHEAD) ---
+        function createTree(x, z, trunkHeight, crownRadius, useSphereCrown = false) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+
+            // Brown cylinder trunk
+            const trunkGeo = new THREE.CylinderGeometry(crownRadius * 0.16, crownRadius * 0.24, trunkHeight, 12);
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = trunkHeight / 2;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            group.add(trunk);
+
+            // Green cone or sphere foliage
+            let foliageGeo;
+            let foliageHeight;
+            if (useSphereCrown) {
+                foliageGeo = new THREE.SphereGeometry(crownRadius, 14, 12);
+                foliageHeight = crownRadius * 1.6;
+            } else {
+                foliageHeight = crownRadius * 2.6;
+                foliageGeo = new THREE.ConeGeometry(crownRadius, foliageHeight, 14);
+            }
+            const foliageMat = new THREE.MeshLambertMaterial({
+                color: useSphereCrown ? 0x1b5e20 : 0x2e7d32
+            });
+            const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+            foliage.position.y = trunkHeight + (useSphereCrown ? crownRadius * 0.65 : foliageHeight * 0.42);
+            foliage.castShadow = true;
+            foliage.receiveShadow = true;
+            group.add(foliage);
+
+            scene.add(group);
+
+            const totalHeight = trunkHeight + foliageHeight * 0.85;
+            obstacles.push({
+                name: 'Tall Tree',
+                x,
+                z,
+                height: totalHeight,
+                radius: crownRadius * 0.85
+            });
+        }
+
+        function createVehicle(x, z, type, colorHex, yawAngle = 0) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+            group.rotation.y = yawAngle;
+
+            const bodyMat = new THREE.MeshPhongMaterial({ color: colorHex, shininess: 50 });
+            const cabinMat = new THREE.MeshPhongMaterial({ color: 0x1e293b, shininess: 90 });
+            const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111827 });
+
+            if (type === 'truck') {
+                // Elongated cargo box truck
+                const chassisGeo = new THREE.BoxGeometry(5, 5, 15.0);
+                const chassis = new THREE.Mesh(chassisGeo, bodyMat);
+                chassis.position.set(0, 2.1, -1.0);
+                chassis.castShadow = true;
+                chassis.receiveShadow = true;
+                group.add(chassis);
+
+                const cabGeo = new THREE.BoxGeometry(3.0, 2.3, 2.6);
+                const cab = new THREE.Mesh(cabGeo, cabinMat);
+                cab.position.set(0, 1.65, 4.8);
+                cab.castShadow = true;
+                group.add(cab);
+
+                obstacles.push({ name: 'Transport Truck', x, z, height: 3.8, radius: 4.5 });
+            } else {
+                // Sedan / SUV low box shape
+                const lowerGeo = new THREE.BoxGeometry(2.4, 1.1, 5.2);
+                const lower = new THREE.Mesh(lowerGeo, bodyMat);
+                lower.position.set(0, 0.9, 0);
+                lower.castShadow = true;
+                lower.receiveShadow = true;
+                group.add(lower);
+
+                const topGeo = new THREE.BoxGeometry(2.1, 0.95, 2.8);
+                const top = new THREE.Mesh(topGeo, cabinMat);
+                top.position.set(0, 1.85, -0.3);
+                top.castShadow = true;
+                group.add(top);
+
+                obstacles.push({ name: 'Ground Vehicle', x, z, height: 2.4, radius: 2.8 });
+            }
+
+            // Simple cylinder wheels
+            const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.4, 12);
+            wheelGeo.rotateZ(Math.PI / 2);
+            const wheelOffsets = [
+                [-1.3, 0.55, 1.8], [1.3, 0.55, 1.8],
+                [-1.3, 0.55, -1.8], [1.3, 0.55, -1.8]
+            ];
+            wheelOffsets.forEach(([wx, wy, wz]) => {
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.position.set(wx, wy, wz);
+                group.add(wheel);
+            });
+
+            scene.add(group);
+        }
+
+        function createPerson(x, z, shirtColorHex) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+
+            // Body cylinder (scaled so observers on the airfield are clearly visible)
+            const bodyGeo = new THREE.CylinderGeometry(0.55, 0.65, 2.4, 12);
+            const bodyMat = new THREE.MeshLambertMaterial({ color: shirtColorHex });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.2;
+            body.castShadow = true;
+            group.add(body);
+
+            // Head sphere
+            const headGeo = new THREE.SphereGeometry(0.48, 12, 12);
+            const headMat = new THREE.MeshLambertMaterial({ color: 0xfde68a });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 2.85;
+            head.castShadow = true;
+            group.add(head);
+
+            scene.add(group);
+            obstacles.push({ name: 'Ground Crew Person', x, z, height: 3.3, radius: 1.0 });
+        }
+
+        function populateObstacles() {
+            createTree(-150, 402, 11.5, 6.8, true);
+            createVehicle(-138, 408, 'car', 0x3b82f6, 0.2);
+            createPerson(-112, 412, 0xef4444);
+            createVehicle(-100, 410, 'car', 0x3b82f6, 0.2);
+            createVehicle(-75, 414, 'van', 0x475569, -0.1);
+            createPerson(-60, 415, 0xef4444);
+            createVehicle(-35, 412, 'truck', 0x64748b, 0.35);
+            createTree(-25, 410, 9.0, 5.5, false);
+            createTree(-2, 414, 11.0, 6.5, true);
+            createVehicle(15, 405, 'van', 0xffffff, -0.15);
+            createPerson(38, 408, 0xec4899);
+            createPerson(50, 415, 0xfacc15);
+            createTree(75, 412, 13.0, 7.5, false);
+            createTree(90, 410, 10.5, 6.0, true);
+            createVehicle(115, 412, 'car', 0x6366f1, -0.3);
+            createTree(125, 407, 11.5, 6.8, false);
+            createTree(148, 410, 10.0, 6.0, true);
+            
+            createTree(-135, 428, 12.5, 7.2, false);
+            createVehicle(-125, 435, 'truck', 0xd97706, -0.2);
+            createTree(-102, 432, 10.5, 6.0, true);
+            createTree(-85, 430, 12.0, 7.0, false);
+            createPerson(-58, 435, 0x22c55e);
+            createPerson(-45, 440, 0x10b981);
+            createTree(-32, 428, 11.0, 6.5, true);
+            createVehicle(-10, 435, 'car', 0x6366f1, 0.1);
+            createPerson(5, 430, 0xf97316);
+            createTree(25, 440, 10.0, 6.0, false);
+            createVehicle(38, 432, 'car', 0x0284c7, -0.15);
+            createPerson(65, 430, 0xec4899);
+            createTree(78, 438, 11.0, 6.4, true);
+            createVehicle(105, 435, 'van', 0x475569, -0.3);
+            createPerson(118, 427, 0xf43f5e);
+            createTree(145, 440, 13.0, 7.5, true);
+            createPerson(150, 428, 0xef4444);
+            
+            createVehicle(-140, 458, 'truck', 0x1e293b, -0.3);
+            createPerson(-128, 468, 0x3b82f6);
+            createVehicle(-110, 460, 'car', 0x0284c7, 0.4);
+            createTree(-98, 466, 11.5, 6.5, true);
+            createPerson(-75, 470, 0x8b5cf6);
+            createTree(-62, 462, 13.0, 7.6, true);
+            createTree(-35, 465, 9.5, 5.8, false);
+            createPerson(-22, 458, 0xfacc15);
+            createVehicle(0, 470, 'truck', 0xb91c1c, 0.0);
+            createPerson(12, 455, 0x06b6d4);
+            createPerson(35, 465, 0xf97316);
+            createVehicle(48, 458, 'van', 0x34495e, 0.35);
+            createTree(75, 475, 11.5, 6.5, true);
+            createPerson(88, 462, 0xa855f7);
+            createVehicle(115, 460, 'car', 0xdc2626, -0.25);
+            createTree(128, 468, 10.5, 6.2, false);
+            createTree(148, 465, 13.5, 7.8, true);
+            
+            createTree(-140, 498, 11.0, 6.4, true);
+            createPerson(-122, 484, 0xec4899);
+            createPerson(-102, 502, 0x14b8a6);
+            createVehicle(-82, 486, 'truck', 0xb45309, -0.3);
+            createPerson(-55, 485, 0x06b6d4);
+            createTree(-32, 488, 11.5, 6.5, true);
+            createVehicle(-20, 500, 'truck', 0x7c2d12, -0.1);
+            createTree(-3, 486, 12.5, 7.2, false);
+            createVehicle(6, 500, 'truck', 0xd97706, -0.25);
+            createTree(20, 500, 8.5, 5.5, true);
+            createVehicle(30, 492, 'van', 0xffffff, 0.3);
+            createTree(52, 498, 10.5, 6.0, true);
+            createTree(65, 505, 12.0, 7.0, false);
+            createVehicle(88, 502, 'truck', 0x64748b, -0.2);
+            createVehicle(95, 495, 'car', 0x9333ea, 0.35);
+            createPerson(120, 498, 0xf97316);
+            createTree(130, 500, 10.5, 6.2, false);
+            createTree(150, 502, 11.5, 6.6, true);
+            
+            createPerson(-135, 515, 0x22c55e);
+            createVehicle(-125, 528, 'car', 0xdc2626, 0.25);
+            
+            createVehicle(-105, 525, 'truck', 0x1e293b, -0.3);
+            createPerson(-92, 512, 0xf43f5e);
+            createTree(-80, 526, 10.0, 6.0, false);
+
+            createVehicle(-52, 522, 'van', 0x475569, 0.1);
+            createTree(-40, 518, 13.0, 7.5, true);
+
+            createPerson(-18, 522, 0x06b6d4);
+            createVehicle(-8, 528, 'car', 0x3b82f6, -0.2);
+            createTree(2, 516, 11.0, 6.2, true);
+           
+            createPerson(22, 528, 0xef4444);
+            createTree(35, 518, 12.0, 7.0, true);
+
+            createVehicle(62, 515, 'car', 0x6366f1, -0.35);
+            
+            createTree(85, 515, 13.5, 7.8, false);
+
+            createVehicle(110, 518, 'van', 0xf1f5f9, 0.2);
+
+            createTree(132, 515, 11.0, 6.4, true);
+
+            createTree(148, 522, 12.0, 7.0, true);
+            
+
+            createTree(-135, 548, 10.5, 6.0, false);
+
+            createVehicle(-108, 538, 'car', 0x9333ea, -0.2);
+
+            createPerson(-80, 550, 0xa855f7);
+ 
+            createVehicle(-55, 548, 'truck', 0xb91c1c, 0.3);
+
+            createTree(-28, 546, 9.5, 5.5, false);
+
+            createPerson(0, 545, 0xef4444);
+ 
+            createTree(35, 550, 11.0, 6.5, true);
+
+            createVehicle(58, 546, 'car', 0x0284c7, 0.25);
+
+            createTree(82, 548, 10.0, 6.0, true);
+
+            createPerson(100, 550, 0x22c55e);
+            
+            
+            createVehicle(148, 550, 'car', 0xdc2626, 0.1);
+        }
+
+        // --- 8. RESET & INITIALIZATION ---
+        const statusModal = document.getElementById('status-modal');
+        const statusBadge = document.getElementById('flight-status-badge');
+        const statusDot = document.getElementById('status-dot');
+
+        function resetSimulation() {
+            state.position.set(0, PHYSICS.startAltitude, 0);
+            state.airspeed = PHYSICS.startAirspeed;
+            state.gamma = -THREE.MathUtils.degToRad(PHYSICS.startDescentDeg);
+            state.pitch = state.gamma + PHYSICS.trimAoA;
+            state.heading = 0.0;
+            state.bank = 0.0;
+            state.aoa = PHYSICS.trimAoA;
+            state.sinkRate = state.airspeed * Math.sin(state.gamma);
+            state.isAirborne = true;
+            state.endReason = '';
+
+            camOrbit.yawOffset = 0;
+            camOrbit.pitchOffset = 0;
+
+            statusModal.classList.add('hidden');
+            statusBadge.textContent = 'AIRBORNE';
+            statusBadge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30';
+            statusDot.className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+
+            updateGliderTransform();
+            snapChaseCamera();
+            updateHUD();
+        }
+
+        // --- 9. AERODYNAMIC PHYSICS STEP ---
+        function updatePhysics(dt) {
+            if (!state.isAirborne) return;
+
+            // Clamp delta time to avoid huge jumps on tab switch
+            const step = Math.min(dt, 0.05);
+
+            // 1. Roll / Bank Control (A = Bank Left, D = Bank Right)
+            // In our coordinate frame (+Z forward, +Y up, +X left):
+            // Rolling left tilts the left wing down, turning heading toward +X.
+            let rollInput = 0;
+            if (keys.left) rollInput -= 1;
+            if (keys.right) rollInput += 1;
+
+            if (rollInput !== 0) {
+                state.bank += rollInput * PHYSICS.rollInputRate * step;
+            } else {
+                // Restoring moment returns wings toward level when keys are released
+                state.bank -= state.bank * PHYSICS.rollRestoreRate * step;
+                if (Math.abs(state.bank) < 0.002) state.bank = 0;
+            }
+
+            // Clamp bank angle to +/- 60 degrees
+            state.bank = THREE.MathUtils.clamp(
+                state.bank,
+                -PHYSICS.maxBankAngle,
+                PHYSICS.maxBankAngle
+            );
+
+            // 2. Longitudinal Pitch & Angle of Attack (AoA)
+            // Aerodynamic static stability trims the glider toward trimAoA
+            const aoaError = PHYSICS.trimAoA - state.aoa;
+            state.aoa += aoaError * PHYSICS.pitchStiffness * step;
+            state.aoa = THREE.MathUtils.clamp(
+                state.aoa,
+                THREE.MathUtils.degToRad(1.0),
+                THREE.MathUtils.degToRad(12.0)
+            );
+
+            // 3. Dynamic Pressure: q = 0.5 * rho * V^2
+            const V = Math.max(state.airspeed, 5.0);
+            const dynamicPressure = 0.5 * PHYSICS.airDensity * V * V;
+
+            // 4. Lift Force: L = q * S * CL(alpha)
+            const CL = PHYSICS.CL0 + PHYSICS.CL_alpha * state.aoa;
+            const Lift = dynamicPressure * PHYSICS.wingArea * CL;
+
+            // 5. Drag Force: D = q * S * (CD0 + k * CL^2)
+            const CD = PHYSICS.CD0 + PHYSICS.inducedDragFactor * (CL * CL);
+            const Drag = dynamicPressure * PHYSICS.wingArea * CD;
+
+            state.liftForce = Lift;
+            state.dragForce = Drag;
+            state.ldRatio = Lift / Math.max(Drag, 1.0);
+
+            // 6. Flight-Path Equations of Motion
+            const weight = PHYSICS.mass * PHYSICS.gravity;
+
+            // Speed acceleration along flight path: m * dV/dt = -D - m * g * sin(gamma)
+            // (Since gamma < 0 in descent, -m*g*sin(gamma) is positive forward gravity component)
+            const dV_dt = (-Drag - weight * Math.sin(state.gamma)) / PHYSICS.mass;
+            state.airspeed = Math.max(5.0, state.airspeed + dV_dt * step);
+
+            // Vertical flight-path angle rate: m * V * d(gamma)/dt = L * cos(bank) - m * g * cos(gamma)
+            // Banking reduces L * cos(bank), causing gamma to become more negative (steeper descent)!
+            const verticalLift = Lift * Math.cos(state.bank);
+            const rawDGamma_dt = (verticalLift - weight * Math.cos(state.gamma)) / (PHYSICS.mass * V);
+
+            // Apply aerodynamic pitch damping so the glider pulls out of the initial 30-deg dive
+            // smoothly into its equilibrium glide angle without excessive phugoid bobbing
+            const equilibriumGamma = -Math.atan2(Drag, verticalLift);
+            const dampedDGamma_dt = rawDGamma_dt * 0.45 + (equilibriumGamma - state.gamma) * PHYSICS.pitchDamping * 0.35;
+            state.gamma += dampedDGamma_dt * step;
+            state.gamma = THREE.MathUtils.clamp(
+                state.gamma,
+                -THREE.MathUtils.degToRad(65),
+                THREE.MathUtils.degToRad(5)
+            );
+
+            // Pitch attitude equals flight path angle + AoA
+            state.pitch = state.gamma + state.aoa;
+
+            // Horizontal turn rate from banked lift: m * V * cos(gamma) * d(psi)/dt = L * sin(bank)
+            const horizontalTurnForce = Lift * Math.sin(state.bank);
+            const dHeading_dt = -horizontalTurnForce / (PHYSICS.mass * V * Math.max(Math.cos(state.gamma), 0.2));
+            state.heading += dHeading_dt * step;
+
+            // 7. Integrate 3D Velocity Vector in World Coordinates
+            const horizSpeed = state.airspeed * Math.cos(state.gamma);
+            const vx = Math.sin(state.heading) * horizSpeed;
+            const vy = state.airspeed * Math.sin(state.gamma);
+            const vz = Math.cos(state.heading) * horizSpeed;
+
+            state.sinkRate = vy;
+            state.position.x += vx * step;
+            state.position.y += vy * step;
+            state.position.z += vz * step;
+
+            // 8. Check Obstacle Collisions
+            for (const obs of obstacles) {
+                const dx = state.position.x - obs.x;
+                const dz = state.position.z - obs.z;
+                const horizDist = Math.sqrt(dx * dx + dz * dz);
+                // Account for wingspan clearance
+                if (horizDist < (obs.radius + 3.2) && state.position.y <= obs.height + 0.5) {
+                    state.isAirborne = false;
+                    showFlightEndModal(
+                        false,
+                        `Wingtip clipped ${obs.name}`,
+                        `Contact occurred at ${state.position.z.toFixed(1)} m downrange. Bank earlier using A or D to weave around obstacles!`
+                    );
+                    break;
+                }
+            }
+
+            // 9. Check Ground Touchdown
+            if (state.isAirborne && state.position.y <= 0.45) {
+                state.position.y = 0.45;
+                state.isAirborne = false;
+                const dist = Math.hypot(state.position.x, state.position.z);
+                showFlightEndModal(
+                    true,
+                    'Glider Touchdown Complete',
+                    `Touchdown at ${dist.toFixed(1)} m downrange with final airspeed ${state.airspeed.toFixed(1)} m/s and sink rate ${Math.abs(state.sinkRate).toFixed(1)} m/s.`
+                );
+            }
+        }
+
+        function showFlightEndModal(isSafeLanding, title, description) {
+            const modalIcon = document.getElementById('modal-icon');
+            const modalTitle = document.getElementById('modal-title');
+            const modalDesc = document.getElementById('modal-desc');
+
+            modalTitle.textContent = title;
+            modalDesc.textContent = description;
+
+            if (isSafeLanding) {
+                modalIcon.textContent = '✓';
+                modalIcon.className = 'w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center mx-auto mb-4 text-2xl font-bold';
+                statusBadge.textContent = 'LANDED';
+                statusBadge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30';
+                statusDot.className = 'inline-block w-2.5 h-2.5 rounded-full bg-sky-400';
+            } else {
+                modalIcon.textContent = '!';
+                modalIcon.className = 'w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-400/40 text-rose-300 flex items-center justify-center mx-auto mb-4 text-2xl font-bold';
+                statusBadge.textContent = 'COLLISION';
+                statusBadge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/30';
+                statusDot.className = 'inline-block w-2.5 h-2.5 rounded-full bg-rose-400';
+            }
+
+            statusModal.classList.remove('hidden');
+        }
+
+        // --- 10. UPDATE GLIDER & CHASE CAMERA ---
+        function updateGliderTransform() {
+            gliderGroup.position.copy(state.position);
+
+            // Apply Heading (Y), Pitch (X), and Bank/Roll (Z) in intrinsic aircraft order 'YXZ'
+            // In our +Z forward coordinate system:
+            // - Pitching nose down (gamma < 0) rotates positively around +X axis
+            // - Banking right (bank > 0) rotates positively around +Z axis
+            const euler = new THREE.Euler(-state.pitch, state.heading, state.bank, 'YXZ');
+            gliderGroup.quaternion.setFromEuler(euler);
+        }
+
+        const smoothedCameraPos = new THREE.Vector3();
+        const smoothedLookTarget = new THREE.Vector3();
+
+        function snapChaseCamera() {
+            const chaseDist = 19.5;
+            const chaseHeight = 5.2;
+            const totalYaw = state.heading + camOrbit.yawOffset;
+
+            const offsetX = -Math.sin(totalYaw) * chaseDist;
+            const offsetZ = -Math.cos(totalYaw) * chaseDist;
+
+            smoothedCameraPos.set(
+                state.position.x + offsetX,
+                Math.max(state.position.y + chaseHeight + camOrbit.pitchOffset, 1.8),
+                state.position.z + offsetZ
+            );
+
+            smoothedLookTarget.set(
+                state.position.x + Math.sin(state.heading) * 4.0,
+                state.position.y + 0.5,
+                state.position.z + Math.cos(state.heading) * 4.0
+            );
+
+            camera.position.copy(smoothedCameraPos);
+            camera.lookAt(smoothedLookTarget);
+        }
+
+        function updateChaseCamera(dt) {
+            const chaseDist = 19.5;
+            const chaseHeight = 5.2;
+            const totalYaw = state.heading + camOrbit.yawOffset;
+
+            const desiredPos = new THREE.Vector3(
+                state.position.x - Math.sin(totalYaw) * chaseDist,
+                Math.max(state.position.y + chaseHeight + camOrbit.pitchOffset, 1.8),
+                state.position.z - Math.cos(totalYaw) * chaseDist
+            );
+
+            // Smooth exponential damping so camera follows position and heading fluidly
+            const lerpFactor = 1.0 - Math.exp(-8.5 * dt);
+            smoothedCameraPos.lerp(desiredPos, lerpFactor);
+            camera.position.copy(smoothedCameraPos);
+
+            // Look slightly ahead of the glider's center of mass so both glider and obstacles ahead stay framed
+            const desiredTarget = new THREE.Vector3(
+                state.position.x + Math.sin(state.heading) * 3.5,
+                state.position.y + 0.3,
+                state.position.z + Math.cos(state.heading) * 3.5
+            );
+            smoothedLookTarget.lerp(desiredTarget, lerpFactor * 1.2);
+            camera.lookAt(smoothedLookTarget);
+        }
+
+        // --- 11. UPDATE HUD TELEMETRY ---
+        const hudAlt = document.getElementById('hud-alt');
+        const hudSpeed = document.getElementById('hud-speed');
+        const hudSink = document.getElementById('hud-sink');
+        const hudGlide = document.getElementById('hud-glide');
+        const hudBank = document.getElementById('hud-bank');
+        const hudDist = document.getElementById('hud-dist');
+        const hudAoa = document.getElementById('hud-aoa');
+        const hudVertLift = document.getElementById('hud-vert-lift');
+        const hudLd = document.getElementById('hud-ld');
+        const horizonDisc = document.getElementById('horizon-disc');
+
+        function updateHUD() {
+            hudAlt.textContent = Math.max(0, state.position.y - 0.45).toFixed(1);
+            hudSpeed.textContent = state.airspeed.toFixed(1);
+            hudSink.textContent = state.sinkRate.toFixed(1);
+            hudGlide.textContent = THREE.MathUtils.radToDeg(state.gamma).toFixed(1);
+
+            const bankDeg = THREE.MathUtils.radToDeg(state.bank);
+            hudBank.textContent = (bankDeg > 0.05 ? '+' : '') + bankDeg.toFixed(1);
+            hudDist.textContent = Math.round(state.position.z);
+
+            hudAoa.textContent = THREE.MathUtils.radToDeg(state.aoa).toFixed(1) + '°';
+            hudVertLift.textContent = Math.round(Math.cos(state.bank) * 100) + '%';
+            hudLd.textContent = state.ldRatio.toFixed(1);
+
+            if (horizonDisc) {
+                horizonDisc.style.transform = `rotate(${-bankDeg}deg)`;
+            }
+        }
+
+        // --- 12. INPUT EVENT LISTENERS (KEYBOARD, TOUCH & MOUSE) ---
+        const btnLeft = document.getElementById('btn-left');
+        const btnRight = document.getElementById('btn-right');
+        const btnReset = document.getElementById('btn-reset');
+        const modalResetBtn = document.getElementById('modal-reset-btn');
+
+        function setBankLeft(active) {
+            keys.left = active;
+            btnLeft.classList.toggle('active-key', active);
+        }
+
+        function setBankRight(active) {
+            keys.right = active;
+            btnRight.classList.toggle('active-key', active);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            const code = e.code;
+            if (code === 'KeyA' || code === 'ArrowLeft') setBankLeft(true);
+            if (code === 'KeyD' || code === 'ArrowRight') setBankRight(true);
+            if (code === 'KeyR') resetSimulation();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const code = e.code;
+            if (code === 'KeyA' || code === 'ArrowLeft') setBankLeft(false);
+            if (code === 'KeyD' || code === 'ArrowRight') setBankRight(false);
+        });
+
+        // Pointer/Touch support for on-screen buttons
+        function bindHoldButton(btn, setter) {
+            btn.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                setter(true);
+            });
+            btn.addEventListener('pointerup', () => setter(false));
+            btn.addEventListener('pointerleave', () => setter(false));
+            btn.addEventListener('pointercancel', () => setter(false));
+        }
+
+        bindHoldButton(btnLeft, setBankLeft);
+        bindHoldButton(btnRight, setBankRight);
+        btnReset.addEventListener('click', resetSimulation);
+        modalResetBtn.addEventListener('click', resetSimulation);
+
+        // Mouse camera angle adjustment around chase position
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            camOrbit.isDragging = true;
+            camOrbit.prevX = e.clientX;
+            camOrbit.prevY = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!camOrbit.isDragging) return;
+            const dx = e.clientX - camOrbit.prevX;
+            const dy = e.clientY - camOrbit.prevY;
+            camOrbit.prevX = e.clientX;
+            camOrbit.prevY = e.clientY;
+
+            camOrbit.yawOffset = THREE.MathUtils.clamp(camOrbit.yawOffset - dx * 0.005, -0.8, 0.8);
+            camOrbit.pitchOffset = THREE.MathUtils.clamp(camOrbit.pitchOffset + dy * 0.04, -3.0, 10.0);
+        });
+
+        window.addEventListener('mouseup', () => {
+            camOrbit.isDragging = false;
+        });
+
+        // Responsive Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 13. MAIN ANIMATION LOOP ---
+        let lastTime = performance.now();
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const dt = (now - lastTime) / 1000;
+            lastTime = now;
+
+            updatePhysics(dt);
+            updateGliderTransform();
+            updateChaseCamera(dt);
+            updateHUD();
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize and start simulation on window load
+        window.onload = function () {
+            createEnvironment();
+            buildGliderMesh();
+            populateObstacles();
+            resetSimulation();
+            lastTime = performance.now();
+            animate(lastTime);
+        };
+    </script>
+</body>
+</html>
